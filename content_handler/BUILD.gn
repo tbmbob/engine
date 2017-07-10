@@ -45,6 +45,7 @@ template("flutter_content_handler") {
              "//application/lib/app",
              "//application/lib/svc",
              "//apps/icu_data/lib",
+             "//apps/maxwell/services/context",
              "//apps/mozart/lib/flutter/sdk_ext",
              "//apps/mozart/lib/scene:client",
              "//apps/mozart/services/input",

@@ -12,6 +12,7 @@
 #include "application/lib/app/application_context.h"
 #include "application/services/application_environment.fidl.h"
 #include "application/services/service_provider.fidl.h"
+#include "apps/maxwell/services/context/context_publisher.fidl.h"
 #include "apps/mozart/lib/flutter/sdk_ext/src/natives.h"
 #include "apps/mozart/services/input/input_connection.fidl.h"
 #include "apps/mozart/services/input/text_input.fidl.h"
@@ -28,6 +29,25 @@
 #include "lib/ftl/memory/weak_ptr.h"
 
 namespace flutter_runner {
+
+// A class to maintain an up-to-date list of SemanticsNodes on screen, and send
+// communication to the Context Service.
+// TODO(travismart): Move this class to its own file.
+class SemanticsUpdater {
+ public:
+  SemanticsUpdater(app::ApplicationContext* context);
+
+  void UpdateSemantics(const std::vector<blink::SemanticsNode>& update);
+
+ private:
+  void UpdateVisitedForNodeAndChildren(const int id,
+                                       std::vector<int>* visited_nodes);
+
+  std::unordered_map<int, blink::SemanticsNode> semantics_nodes_;
+
+  maxwell::ContextPublisherPtr publisher_;
+};
+
 class Rasterizer;
 
 class RuntimeHolder : public blink::RuntimeDelegate,
@@ -115,6 +135,8 @@ class RuntimeHolder : public blink::RuntimeDelegate,
   bool frame_rendering_ = false;
 
   ftl::WeakPtrFactory<RuntimeHolder> weak_factory_;
+
+  std::unique_ptr<SemanticsUpdater> semantics_updater_;
 
   FTL_DISALLOW_COPY_AND_ASSIGN(RuntimeHolder);
 };

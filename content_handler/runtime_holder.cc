@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "application/lib/app/connect.h"
+#include "apps/maxwell/services/context/context_publisher.fidl.h"
 #include "dart/runtime/include/dart_api.h"
 #include "flutter/assets/zip_asset_store.h"
 #include "flutter/common/threads.h"
@@ -79,6 +80,59 @@ blink::PointerData::DeviceKind GetKindFromPointerType(
 }
 
 }  // namespace
+
+SemanticsUpdater::SemanticsUpdater(app::ApplicationContext* context)
+    : publisher_(
+          context->ConnectToEnvironmentService<maxwell::ContextPublisher>()) {
+  publisher_.set_connection_error_handler(
+      [] { FTL_LOG(ERROR) << "Error connecting to ContextPublisher"; });
+  FTL_LOG(INFO) << "Constructing SemanticsUpdater.";
+}
+
+void SemanticsUpdater::UpdateSemantics(
+    const std::vector<blink::SemanticsNode>& update) {
+  for (const auto& node : update) {
+    semantics_nodes_[node.id] = node;
+  }
+  std::vector<int> visited_nodes;
+  this->UpdateVisitedForNodeAndChildren(0, &visited_nodes);
+  // TODO(travismart): Delete unvisited nodes.
+
+  // Value sent to the context service should be a list of strings, in the order
+  // they appear on screen.
+  // TODO(travismart): For the time being, selection within a node is simply
+  // appended to the end of node.label. Make this more robust.
+  std::stringstream to_publish;
+  to_publish << "[";
+  bool first_node = true;
+  for (const int node_index : visited_nodes) {
+    const auto& node = semantics_nodes_[node_index];
+    if (!node.label.empty()) {
+      if (!first_node)
+        to_publish << ", ";
+      first_node = false;
+      to_publish << "\"" << node.label << "\"";
+    }
+  }
+  to_publish << "]";
+
+  if (!first_node) {
+    publisher_->Publish("/inferred/accessibility_text", to_publish.str());
+  }
+}
+
+void SemanticsUpdater::UpdateVisitedForNodeAndChildren(
+    const int id,
+    std::vector<int>* visited_nodes) {
+  auto it = semantics_nodes_.find(id);
+  assert(it != semantics_nodes_.end());
+  const blink::SemanticsNode node = it->second;
+
+  visited_nodes->push_back(id);
+  for (const int child : node.children) {
+    this->UpdateVisitedForNodeAndChildren(child, visited_nodes);
+  }
+}
 
 RuntimeHolder::RuntimeHolder()
     : view_listener_binding_(this),
@@ -158,6 +212,9 @@ void RuntimeHolder::Init(
     blink::SetRegisterNativeServiceProtocolExtensionHook(
         ServiceProtocolHooks::RegisterHooks);
   }
+
+  semantics_updater_ =
+      std::unique_ptr<SemanticsUpdater>(new SemanticsUpdater(context_.get()));
 }
 
 void RuntimeHolder::CreateView(
@@ -264,6 +321,7 @@ void RuntimeHolder::CreateView(
     runtime_->dart_controller()->RunFromScriptSnapshot(snapshot.data(),
                                                        snapshot.size());
   }
+  runtime_->SetSemanticsEnabled(true);
 }
 
 Dart_Port RuntimeHolder::GetUIIsolateMainPort() {
@@ -333,7 +391,9 @@ void RuntimeHolder::Render(std::unique_ptr<flow::LayerTree> layer_tree) {
   }));
 }
 
-void RuntimeHolder::UpdateSemantics(std::vector<blink::SemanticsNode> update) {}
+void RuntimeHolder::UpdateSemantics(std::vector<blink::SemanticsNode> update) {
+  semantics_updater_->UpdateSemantics(update);
+}
 
 void RuntimeHolder::HandlePlatformMessage(
     ftl::RefPtr<blink::PlatformMessage> message) {
