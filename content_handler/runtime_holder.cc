@@ -13,6 +13,7 @@
 #include "dart/runtime/include/dart_api.h"
 #include "flutter/assets/zip_asset_store.h"
 #include "flutter/common/threads.h"
+#include "flutter/content_handler/accessibility_bridge.h"
 #include "flutter/content_handler/rasterizer.h"
 #include "flutter/content_handler/service_protocol_hooks.h"
 #include "flutter/lib/snapshot/snapshot.h"
@@ -160,6 +161,9 @@ void RuntimeHolder::Init(
     blink::SetRegisterNativeServiceProtocolExtensionHook(
         ServiceProtocolHooks::RegisterHooks);
   }
+
+  accessibility_bridge_ = std::unique_ptr<AccessibilityBridge>(
+      new AccessibilityBridge(context_.get()));
 }
 
 void RuntimeHolder::CreateView(
@@ -266,9 +270,10 @@ void RuntimeHolder::CreateView(
     runtime_->dart_controller()->RunFromScriptSnapshot(snapshot.data(),
                                                        snapshot.size());
   }
-
   runtime_->dart_controller()->dart_state()->SetReturnCodeCallback(
       [this](int32_t return_code) { return_code_ = return_code; });
+
+  runtime_->SetSemanticsEnabled(true);
 }
 
 Dart_Port RuntimeHolder::GetUIIsolateMainPort() {
@@ -338,7 +343,9 @@ void RuntimeHolder::Render(std::unique_ptr<flow::LayerTree> layer_tree) {
   }));
 }
 
-void RuntimeHolder::UpdateSemantics(std::vector<blink::SemanticsNode> update) {}
+void RuntimeHolder::UpdateSemantics(std::vector<blink::SemanticsNode> update) {
+  accessibility_bridge_->UpdateSemantics(update);
+}
 
 void RuntimeHolder::HandlePlatformMessage(
     fxl::RefPtr<blink::PlatformMessage> message) {
